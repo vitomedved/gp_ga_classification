@@ -23,7 +23,7 @@ def if_then_else(condition, out1, out2):
     return out2
 
 # uzmi dataset i broj argumenata koje cemo imati
-file = open("dataset.data")
+file = open("../dataset/dataset.data")
 lines = file.readlines()
 
 # ovdje uzimam jednu liniju kako bih mogao izvaditi duljinu argumenata
@@ -174,4 +174,4 @@ for i in nodes:
     n = g.get_node(i)
     n.attr["label"] = labels[i]
 
-g.draw("tree.pdf")
+g.draw("../output/tree.pdf")

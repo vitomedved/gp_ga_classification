@@ -10,6 +10,10 @@ from deap import creator
 from deap import tools
 from deap import gp
 
+import csv
+
+import matplotlib.pyplot as plt
+
 # custom funckija koja sluzi kao operator u stablu
 def protected_div(arg1, arg2):
     if arg2 == 0:
@@ -42,7 +46,7 @@ pset.addPrimitive(if_then_else, 3)
 # https://deap.readthedocs.io/en/master/api/creator.html
 # creator radi klasu imena arg0, bazna klasa je arg1, a arg2 sluzi kao parametri koje zelimo inicijalizirati u toj novoj klasi
 # ovdje radim dvije klase, FitnessMin i Individual
-creator.create("FitnessMin", base.Fitness, weights=(-1.0,))
+creator.create("FitnessMin", base.Fitness, weights=(1.0, ))
 creator.create("Individual", gp.PrimitiveTree, fitness=creator.FitnessMin)
 
 # https://deap.readthedocs.io/en/master/api/base.html#toolbox
@@ -51,7 +55,7 @@ creator.create("Individual", gp.PrimitiveTree, fitness=creator.FitnessMin)
 #   arg0 = alias funkcije, arg1 = funkcija koju zelimo registrirati, arg2 = 1 ili vise argumenata koji ce biti defaultni kod poziva te funkcije
 toolbox = base.Toolbox()
 toolbox.register("expr", gp.genHalfAndHalf, pset=pset, min_=1, max_=2)
-toolbox.register("individual", tools.initIterate, creator.Individual, toolbox.expr)
+toolbox.register("individual", tools.initIterate, creator.Individual, toolbox.expr) # individual u biti predstavlja na koji nacin cemo raditi novog individualca, u ovom slucaju to radimo sa expr
 toolbox.register("population", tools.initRepeat, list, toolbox.individual)
 toolbox.register("compile", gp.compile, pset=pset)
 
@@ -67,7 +71,7 @@ def evalTrues(individual, dataLines):
 
     # idi kroz svaku liniju u datasetu
     # nisam siguran kako da odaberem pola za "train", a pola za "test" pa je ovaj zakomentirani dio dio koji kaze da se ide samo do pola dataseta, ne kroz cijeli
-    for line in dataLines:#[:len(dataLines) / 2]:
+    for line in dataLines[:len(dataLines) / 2]:
         # parsiraj liniju u array podataka
         currentLine = line.strip().split(",")
 
@@ -117,11 +121,12 @@ toolbox.decorate("mutate", gp.staticLimit(key=operator.attrgetter("height"), max
 
 def main():
     # koristimo zbog pseudo-random generiranj brojeva, tj. trebamo dati neku drukciji seed svaki put kako bi osigurali
-    # da nam random funkcija vraca random rjesenja svaki put
-    random.seed(318)
+    # da nam random funkcija vraca razlicita rjesenja svaki put
+    # u ovom slucaju je seed uvijek isti i ista rjesenja ce dolaziti
+    random.seed(123)
 
     # velicina populacije koju zelimo imati i optimizirati
-    pop = toolbox.population(n=20)
+    pop = toolbox.population(n=50)
 
     # lista od x najboljih rjesenja, dolje ima link za referencu
     hof = tools.HallOfFame(1)
@@ -129,12 +134,14 @@ def main():
     # napravimo objekt statistike i registriramo nutra funkcije statistike koje zelimo imati (u ovom slucaju za fitness)
     stats_fit = tools.Statistics(lambda ind: ind.fitness.values)
     stats_size = tools.Statistics(len)
+
+    
+
     mstats = tools.MultiStatistics(fitness=stats_fit, size=stats_size)
     mstats.register("avg", numpy.mean)
     mstats.register("std", numpy.std)
     mstats.register("min", numpy.min)
     mstats.register("max", numpy.max)
-
 
     # https://deap.readthedocs.io/en/master/api/algo.html
     # jednostavni evolucijski algoritam
@@ -143,7 +150,6 @@ def main():
     # arg6 = objekt koji sadrzi najbolja drva koja su spremna za sjecu i pretvaranje u namjestaj, arg7 = hocu li loggati statistiku ili ne
     pop, log = algorithms.eaSimple(pop, toolbox, 0.2, 0.4, 40, stats=mstats,
                                    halloffame=hof, verbose=True)
-
     return pop, log, hof
 
 # za return i parametre funkcije pogledaj link na liniji 114 (nadajmo se da se ta linija nece previse mijenjati)
@@ -152,7 +158,63 @@ def main():
 # hof = najbolji klasifikatori svake generacije
 pop, log, hof = main()
 
-print(len(pop), len(log), len(hof))
+# hof je tekstualni zapis programa
+#tree = gp.PrimitiveTree(hof[0])
+#fun = gp.compile(tree, hof[0])
+
+rez = evalTrues(hof[0], lines[len(lines) / 2:])
+print("On test data accuracy (2nd half of dataset): ", rez)
+
+
+def evalOnNewDataset(individual, dataLines):
+    if len(dataLines[0][:-1]) > numOfArgs:
+        offset = len(dataLines[0][:-1]) - numOfArgs
+
+    func = toolbox.compile(expr=individual)
+
+    correct = 0
+    guesses = 0
+
+    for line in dataLines:
+
+        actualResult = line[-1]
+
+        line = line[offset:-1]
+        
+        line = map(float, line)
+
+        guess = func(*line)
+
+        if (guess > 0 and actualResult == '1') or (guess <= 0 and actualResult == '0'):
+            correct += 1
+        guesses += 1
+
+    return float(1.0 * correct / guesses)
+
+
+
+
+with open('../dataset/JDT_R2_0.csv') as csvfile:
+    data = list(csv.reader(csvfile))
+
+for line in data:
+    if line[len(line) - 1] > '0':
+        line[len(line) - 1] = '1'
+
+newDataRez = evalOnNewDataset(hof[0], data[1:])
+print("Accuracy on another (new) dataset: ", newDataRez)
+
+
+averages = log.chapters['fitness'].select("avg")
+mins = log.chapters['fitness'].select("min")
+maxes = log.chapters['fitness'].select("max")
+
+plt.plot(averages)
+plt.plot(mins)
+plt.plot(maxes)
+plt.legend(["avg", "min", "max"])
+plt.title("acc per generation")
+plt.show()
 
 '''
 hof ce vratiti listu koja sadrzi najbolje klasifikatore (hof[0] vraca onaj najbolji klasifikator)

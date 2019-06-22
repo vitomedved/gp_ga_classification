@@ -27,13 +27,20 @@ def if_then_else(condition, out1, out2):
     return out2
 
 # uzmi dataset i broj argumenata koje cemo imati
-file = open("../dataset/dataset.data")
-lines = file.readlines()
+#file = open("../dataset/dataset.data")
+#lines = file.readlines()
+
+with open('../dataset/JDT_R2_0.csv') as csvfile:
+    data = list(csv.reader(csvfile))
+
+for line in data:
+    if line[len(line) - 1] > '0':
+        line[len(line) - 1] = '1'
 
 # ovdje uzimam jednu liniju kako bih mogao izvaditi duljinu argumenata
-arr = lines[0][:-1].split(",")
 # num of args je jednak indexu zadnjeg stupca koji pogadamo tako da pazi na to
-numOfArgs = len(arr[:-1])
+# 1:-1 jer je prvi stupac ime dataseta, a zadnji actual guess
+numOfArgs = len(data[0][1:-1])
 
 # definiraj kako ce stablo izgledati
 pset = gp.PrimitiveSet("MAIN", numOfArgs)
@@ -46,15 +53,15 @@ pset.addPrimitive(if_then_else, 3)
 # https://deap.readthedocs.io/en/master/api/creator.html
 # creator radi klasu imena arg0, bazna klasa je arg1, a arg2 sluzi kao parametri koje zelimo inicijalizirati u toj novoj klasi
 # ovdje radim dvije klase, FitnessMin i Individual
-creator.create("FitnessMin", base.Fitness, weights=(1.0, ))
-creator.create("Individual", gp.PrimitiveTree, fitness=creator.FitnessMin)
+creator.create("FitnessMax", base.Fitness, weights=(1.0, 1.0, ))
+creator.create("Individual", gp.PrimitiveTree, fitness=creator.FitnessMax)
 
 # https://deap.readthedocs.io/en/master/api/base.html#toolbox
 # napravimo objekt toolboxa koji sadrzi evolutionary operatore
 # sa register u taj objekt registriramo funkcije po zelji na sljedeci nacin:
 #   arg0 = alias funkcije, arg1 = funkcija koju zelimo registrirati, arg2 = 1 ili vise argumenata koji ce biti defaultni kod poziva te funkcije
 toolbox = base.Toolbox()
-toolbox.register("expr", gp.genHalfAndHalf, pset=pset, min_=1, max_=2)
+toolbox.register("expr", gp.genHalfAndHalf, pset=pset, min_=1, max_=5)
 toolbox.register("individual", tools.initIterate, creator.Individual, toolbox.expr) # individual u biti predstavlja na koji nacin cemo raditi novog individualca, u ovom slucaju to radimo sa expr
 toolbox.register("population", tools.initRepeat, list, toolbox.individual)
 toolbox.register("compile", gp.compile, pset=pset)
@@ -66,35 +73,57 @@ def evalTrues(individual, dataLines):
 
     # counteri koji broje koliko je tocno pogodenih linija podataka, a koliko je ukupno linija
     # TODO: ukupni broj linija se vjerojatno moze dobiti preko len(dataLines), ali naravno ako kod radi, ne treba ga mijenjati
-    correct = 0
-    guesses = 0
+    #correct = 0
+    #guesses = 0
+
+
+
+#################################################################################
+# TODO: first get population in a way that i have only numbers in array, and then minimize/maximize those?
+
+    trues = 0
+    falses = 0
+    guessedTrue = 0
+    guessedFalse = 0
 
     # idi kroz svaku liniju u datasetu
     # nisam siguran kako da odaberem pola za "train", a pola za "test" pa je ovaj zakomentirani dio dio koji kaze da se ide samo do pola dataseta, ne kroz cijeli
-    for line in dataLines[:len(dataLines) / 2]:
+    for line in dataLines[1:len(dataLines) / 2]:
         # parsiraj liniju u array podataka
-        currentLine = line.strip().split(",")
-
+        #currentLine = line.strip().split(",")
+        line = line[1:]
         # razdvoji liniju na parametre koje moramo pogadati i stvarni rezultat
-        actualResult = currentLine[-1]
-        currentLine = map(float, currentLine[:-1])
+        actualResult = line[-1]
+        line = map(float, line[:-1])
 
         #dobij neku vrijednost iz klasifikatora
-        guess = func(*currentLine)
+        guess = func(*line)
+
+        if(guess > 0 and actualResult == '1'):
+            guessedTrue += 1
+        if actualResult == '1':
+            trues += 1
+
+        if(guess <= 0 and actualResult == '0'):
+            guessedFalse += 1
+        if actualResult == '0':
+            falses += 1
 
         # logika ovdje je da pretpostavljam da je 0 threshold, ako klasifikator vrati >0, to znaci da je rekao da je rezultat 'g', tj. 'good'
         # to je hardkodirana vrijednost pa se kod razlicitih dataseta ovo mora rucno promijeniti u taj zadnji element (1 ili 0)
         # ovo naravno vrijedi samo za klasifikaciju, a ne regresiju
-        if(guess > 0 and actualResult == 'g') or (guess <= 0 and actualResult == 'b'):
-            correct += 1
+        #if(guess > 0 and actualResult == '1') or (guess <= 0 and actualResult == '0'):
+            #correct += 1
 
-        guesses += 1
+        #guesses += 1
 
     # vrati accuracy
-    result = float(correct) / float(guesses)
-    
+    #result = pow((float(correct) / float(guesses)), 4)
+    result = (float(guessedTrue) / float(trues)), (float(guessedFalse) / float(falses)),
+    #print(result)
+
     # ovaj "result," je dosta zanimljiv jer ima zarez nakon varijable, to je zato jer moram vratiti tupple, inace program ne radi :)))))
-    return result,
+    return result
 
 # ovdje opet ista prica kao i gore, registriram neke funkcije sa aliasima i defaultnim parametrima
 # neke od ovih funkcija treba postaviti prije pozivanja evolucijskog algoritma, za tocne info o tome koje funkcije treba postaviti, checkiraj dokumentaciju, link je dolje negdje
@@ -102,10 +131,10 @@ def evalTrues(individual, dataLines):
 # TODO: umjesto tournament selecetion koristi NSGA2 ili SPEA2
 
 # evaluation
-toolbox.register("evaluate", evalTrues, dataLines=lines)
+toolbox.register("evaluate", evalTrues, dataLines=data)
 # selection - algoritam kojim odabiremo rezultate
 # TODO: koristiti neki drugi selection algoritam koji se koristi u radu
-toolbox.register("select", tools.selTournament, tournsize=3)
+toolbox.register("select", tools.selNSGA2)
 # crossover - napravi crossover izmedu dva stabla na jednoj tocki svakog stabla
 toolbox.register("mate", gp.cxOnePoint)
 # initialization - koristimo stabla gdje svaki list ima jednaku dubinu izmedu min-max, u biti odreduje dubinu stabla na neki nacin
@@ -123,14 +152,14 @@ def main():
     # koristimo zbog pseudo-random generiranj brojeva, tj. trebamo dati neku drukciji seed svaki put kako bi osigurali
     # da nam random funkcija vraca razlicita rjesenja svaki put
     # u ovom slucaju je seed uvijek isti i ista rjesenja ce dolaziti
-    random.seed(123)
+    random.seed(221)
 
     # velicina populacije koju zelimo imati i optimizirati
-    pop = toolbox.population(n=50)
+    pop = toolbox.population(n=30)
 
     # lista od x najboljih rjesenja, dolje ima link za referencu
-    hof = tools.HallOfFame(1)
-    
+    #hof = tools.HallOfFame(9)
+    hof = tools.ParetoFront()
     # napravimo objekt statistike i registriramo nutra funkcije statistike koje zelimo imati (u ovom slucaju za fitness)
     stats_fit = tools.Statistics(lambda ind: ind.fitness.values)
     stats_size = tools.Statistics(len)
@@ -148,7 +177,7 @@ def main():
     # arg0 = populacija koju optimiziramo, arg1 = toolbox sa svim funkcijama koje trebamo imati definirane, arg2 = vjerojatnost za crossover stabla,
     # arg3 = vjerojatnost mutiranja stablam arg4 = broj generacija, arg5 = objekt u koji se sprema statistika, 
     # arg6 = objekt koji sadrzi najbolja drva koja su spremna za sjecu i pretvaranje u namjestaj, arg7 = hocu li loggati statistiku ili ne
-    pop, log = algorithms.eaSimple(pop, toolbox, 0.2, 0.4, 40, stats=mstats,
+    pop, log = algorithms.eaSimple(pop, toolbox, 0.7, 0.8, 40, stats=mstats,
                                    halloffame=hof, verbose=True)
     return pop, log, hof
 
@@ -158,51 +187,68 @@ def main():
 # hof = najbolji klasifikatori svake generacije
 pop, log, hof = main()
 
-# hof je tekstualni zapis programa
-#tree = gp.PrimitiveTree(hof[0])
-#fun = gp.compile(tree, hof[0])
+def evalOnNewDataset(hofs, dataLines):
 
-rez = evalTrues(hof[0], lines[len(lines) / 2:])
-print("On test data accuracy (2nd half of dataset): ", rez)
+    votesFor1 = 0
+    votesFor0 = 0
 
+    functions = []
 
-def evalOnNewDataset(individual, dataLines):
-    if len(dataLines[0][:-1]) > numOfArgs:
-        offset = len(dataLines[0][:-1]) - numOfArgs
+    for hof in hofs:
+        # current hof is current classifier
+        functions.append(toolbox.compile(expr=hof))
 
-    func = toolbox.compile(expr=individual)
-
-    correct = 0
-    guesses = 0
+    correctLines = 0
+    guessedLines = 0
 
     for line in dataLines:
 
         actualResult = line[-1]
-
-        line = line[offset:-1]
-        
+        line = line[1:-1]
         line = map(float, line)
+        counter = 0
 
-        guess = func(*line)
+        for func in functions:
+            guess = func(*line)
 
-        if (guess > 0 and actualResult == '1') or (guess <= 0 and actualResult == '0'):
-            correct += 1
-        guesses += 1
+            if(guess > 0):
+                votesFor1 += 1
+            else:
+                votesFor0 += 1
 
-    return float(1.0 * correct / guesses)
+        if (votesFor0 > votesFor1) and (actualResult == '0'):
+            correctLines += 1
+        elif (votesFor1 > votesFor0) and (actualResult == '1'):
+            correctLines += 1
+        guessedLines += 1
+        counter += 1
+
+    return (1.0 * correctLines / guessedLines)
 
 
 
+with open('../dataset/JDT_R2_1.csv') as csvfile:
+    data1 = list(csv.reader(csvfile))
 
-with open('../dataset/JDT_R2_0.csv') as csvfile:
-    data = list(csv.reader(csvfile))
-
-for line in data:
+for line in data1:
     if line[len(line) - 1] > '0':
         line[len(line) - 1] = '1'
 
-newDataRez = evalOnNewDataset(hof[0], data[1:])
-print("Accuracy on another (new) dataset: ", newDataRez)
+JDT_R2_1Rez = evalOnNewDataset(hof, data1[1:])
+print("Accuracy on JDT_R2_1 dataset: ", JDT_R2_1Rez)
+
+
+with open('../dataset/JDT_R3_0.csv') as csvfile:
+    data2 = list(csv.reader(csvfile))
+
+for line in data2:
+    if line[len(line) - 1] > '0':
+        line[len(line) - 1] = '1'
+
+JDT_R3_0Rez = evalOnNewDataset(hof, data2[1:])
+print("Accuracy on JDT_R3_0 dataset: ", JDT_R3_0Rez)
+
+
 
 
 averages = log.chapters['fitness'].select("avg")
@@ -210,9 +256,9 @@ mins = log.chapters['fitness'].select("min")
 maxes = log.chapters['fitness'].select("max")
 
 plt.plot(averages)
-plt.plot(mins)
-plt.plot(maxes)
-plt.legend(["avg", "min", "max"])
+#plt.plot(mins)
+#plt.plot(maxes)
+#plt.legend(["avg", "min", "max"])
 plt.title("acc per generation")
 plt.show()
 

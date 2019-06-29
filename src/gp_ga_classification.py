@@ -30,7 +30,7 @@ def if_then_else(condition, out1, out2):
 #file = open("../dataset/dataset.data")
 #lines = file.readlines()
 
-with open('../dataset/JDT_R2_0.csv') as csvfile:
+with open('../dataset/JDT_R3_1.csv') as csvfile:
     data = list(csv.reader(csvfile))
 
 for line in data:
@@ -53,7 +53,7 @@ pset.addPrimitive(if_then_else, 3)
 # https://deap.readthedocs.io/en/master/api/creator.html
 # creator radi klasu imena arg0, bazna klasa je arg1, a arg2 sluzi kao parametri koje zelimo inicijalizirati u toj novoj klasi
 # ovdje radim dvije klase, FitnessMin i Individual
-creator.create("FitnessMax", base.Fitness, weights=(1.0, 1.0, ))
+creator.create("FitnessMax", base.Fitness, weights=(1.0,))
 creator.create("Individual", gp.PrimitiveTree, fitness=creator.FitnessMax)
 
 # https://deap.readthedocs.io/en/master/api/base.html#toolbox
@@ -66,6 +66,11 @@ toolbox.register("individual", tools.initIterate, creator.Individual, toolbox.ex
 toolbox.register("population", tools.initRepeat, list, toolbox.individual)
 toolbox.register("compile", gp.compile, pset=pset)
 
+
+
+def PolyArea(x,y):
+    return 0.5*np.abs(np.dot(x,np.roll(y,1))-np.dot(y,np.roll(x,1)))
+
 # funkcija koja ce evaluirati tocnost stabla
 def evalTrues(individual, dataLines):
     # pretvori tree expresion u kod koji python moze izvrsiti, tj. u funkciju koju onda smao pozivamo
@@ -73,8 +78,8 @@ def evalTrues(individual, dataLines):
 
     # counteri koji broje koliko je tocno pogodenih linija podataka, a koliko je ukupno linija
     # TODO: ukupni broj linija se vjerojatno moze dobiti preko len(dataLines), ali naravno ako kod radi, ne treba ga mijenjati
-    #correct = 0
-    #guesses = 0
+    correct = 0
+    guesses = 0
 
 
 
@@ -86,44 +91,56 @@ def evalTrues(individual, dataLines):
     guessedTrue = 0
     guessedFalse = 0
 
-    # idi kroz svaku liniju u datasetu
-    # nisam siguran kako da odaberem pola za "train", a pola za "test" pa je ovaj zakomentirani dio dio koji kaze da se ide samo do pola dataseta, ne kroz cijeli
-    for line in dataLines[1:len(dataLines) / 2]:
-        # parsiraj liniju u array podataka
-        #currentLine = line.strip().split(",")
-        line = line[1:]
-        # razdvoji liniju na parametre koje moramo pogadati i stvarni rezultat
-        actualResult = line[-1]
-        line = map(float, line[:-1])
+    TPR = []
+    FPR = []
 
-        #dobij neku vrijednost iz klasifikatora
-        guess = func(*line)
+    thresholds = [-10, -5, 0, 5, 10]
 
-        if(guess > 0 and actualResult == '1'):
-            guessedTrue += 1
-        if actualResult == '1':
-            trues += 1
+    for thresh in thresholds:
+        TP = 0
+        FN = 0
 
-        if(guess <= 0 and actualResult == '0'):
-            guessedFalse += 1
-        if actualResult == '0':
-            falses += 1
+        FP = 0
+        TN = 0
+        # idi kroz svaku liniju u datasetu
+        # nisam siguran kako da odaberem pola za "train", a pola za "test" pa je ovaj zakomentirani dio dio koji kaze da se ide samo do pola dataseta, ne kroz cijeli
+        for line in dataLines[1:len(dataLines) / 2]:
+            # parsiraj liniju u array podataka
+            #currentLine = line.strip().split(",")
+            line = line[1:]
+            # razdvoji liniju na parametre koje moramo pogadati i stvarni rezultat
+            actualResult = line[-1]
+            line = map(float, line[:-1])
 
-        # logika ovdje je da pretpostavljam da je 0 threshold, ako klasifikator vrati >0, to znaci da je rekao da je rezultat 'g', tj. 'good'
-        # to je hardkodirana vrijednost pa se kod razlicitih dataseta ovo mora rucno promijeniti u taj zadnji element (1 ili 0)
-        # ovo naravno vrijedi samo za klasifikaciju, a ne regresiju
-        #if(guess > 0 and actualResult == '1') or (guess <= 0 and actualResult == '0'):
-            #correct += 1
+            #dobij neku vrijednost iz klasifikatora
+            guess = func(*line)
 
-        #guesses += 1
+            if(guess > thresh and actualResult == '1'):
+                TP += 1
+            if(guess <= thresh and actualResult == '1'):
+                FN += 1
 
-    # vrati accuracy
-    #result = pow((float(correct) / float(guesses)), 4)
-    result = (float(guessedTrue) / float(trues)), (float(guessedFalse) / float(falses)),
-    #print(result)
+            if(guess > thresh and actualResult == '0'):
+                FP += 1
+            if(guess <= thresh and actualResult == '0'):
+                TN += 1
+            # logika ovdje je da pretpostavljam da je 0 threshold, ako klasifikator vrati >0, to znaci da je rekao da je rezultat 'g', tj. 'good'
+            # to je hardkodirana vrijednost pa se kod razlicitih dataseta ovo mora rucno promijeniti u taj zadnji element (1 ili 0)
+            # ovo naravno vrijedi samo za klasifikaciju, a ne regresiju
+            #if(guess > 0 and actualResult == '1') or (guess <= 0 and actualResult == '0'):
+                #correct += 1
+
+            #guesses += 1
+
+        TPRcurrent = (1.0 * TP) / (TP + FN)
+        FPRcurrent = (1.0 * FP) / (FP + TN)
+        TPR.append(TPRcurrent)
+        FPR.append(FPRcurrent)
+
+    auc = numpy.trapz(TPR, [i for i in numpy.linspace(min(FPR),max(FPR),len(TPR))])
 
     # ovaj "result," je dosta zanimljiv jer ima zarez nakon varijable, to je zato jer moram vratiti tupple, inace program ne radi :)))))
-    return result
+    return auc,
 
 # ovdje opet ista prica kao i gore, registriram neke funkcije sa aliasima i defaultnim parametrima
 # neke od ovih funkcija treba postaviti prije pozivanja evolucijskog algoritma, za tocne info o tome koje funkcije treba postaviti, checkiraj dokumentaciju, link je dolje negdje
@@ -134,12 +151,12 @@ def evalTrues(individual, dataLines):
 toolbox.register("evaluate", evalTrues, dataLines=data)
 # selection - algoritam kojim odabiremo rezultate
 # TODO: koristiti neki drugi selection algoritam koji se koristi u radu
-toolbox.register("select", tools.selNSGA2)
+toolbox.register("select", tools.selTournament, tournsize=5)
 # crossover - napravi crossover izmedu dva stabla na jednoj tocki svakog stabla
 toolbox.register("mate", gp.cxOnePoint)
 # initialization - koristimo stabla gdje svaki list ima jednaku dubinu izmedu min-max, u biti odreduje dubinu stabla na neki nacin
 # moze se i koristiti gp.genGrow gdje stabla mogu imati razlicite dubine, a moze se i koristiti genHalfAndHalf gdje se mijesa geFull i genGrow
-toolbox.register("expr_mut", gp.genFull, min_=0, max_=2)
+toolbox.register("expr_mut", gp.genFull, min_=1, max_=4)
 # mutiranje - uzme neku random tocku na stablu i zamijeni je sa stablom koje ce se generirati iz expr argumenta
 toolbox.register("mutate", gp.mutUniform, expr=toolbox.expr_mut, pset=pset)
 
@@ -152,14 +169,14 @@ def main():
     # koristimo zbog pseudo-random generiranj brojeva, tj. trebamo dati neku drukciji seed svaki put kako bi osigurali
     # da nam random funkcija vraca razlicita rjesenja svaki put
     # u ovom slucaju je seed uvijek isti i ista rjesenja ce dolaziti
-    random.seed(221)
+    random.seed(420)
 
     # velicina populacije koju zelimo imati i optimizirati
-    pop = toolbox.population(n=30)
+    pop = toolbox.population(n=20)
 
     # lista od x najboljih rjesenja, dolje ima link za referencu
-    #hof = tools.HallOfFame(9)
-    hof = tools.ParetoFront()
+    hof = tools.HallOfFame(3)
+    #hof = tools.ParetoFront()
     # napravimo objekt statistike i registriramo nutra funkcije statistike koje zelimo imati (u ovom slucaju za fitness)
     stats_fit = tools.Statistics(lambda ind: ind.fitness.values)
     stats_size = tools.Statistics(len)
@@ -177,7 +194,7 @@ def main():
     # arg0 = populacija koju optimiziramo, arg1 = toolbox sa svim funkcijama koje trebamo imati definirane, arg2 = vjerojatnost za crossover stabla,
     # arg3 = vjerojatnost mutiranja stablam arg4 = broj generacija, arg5 = objekt u koji se sprema statistika, 
     # arg6 = objekt koji sadrzi najbolja drva koja su spremna za sjecu i pretvaranje u namjestaj, arg7 = hocu li loggati statistiku ili ne
-    pop, log = algorithms.eaSimple(pop, toolbox, 0.7, 0.8, 40, stats=mstats,
+    pop, log = algorithms.eaSimple(pop, toolbox, 0.3, 0.4, 20, stats=mstats,
                                    halloffame=hof, verbose=True)
     return pop, log, hof
 
@@ -194,9 +211,10 @@ def evalOnNewDataset(hofs, dataLines):
 
     functions = []
 
-    for hof in hofs:
+    for h in hofs:
         # current hof is current classifier
-        functions.append(toolbox.compile(expr=hof))
+        functions.append(toolbox.compile(expr=h))
+        print("auc for func: ", evalTrues(h, dataLines))
 
     correctLines = 0
     guessedLines = 0
@@ -207,18 +225,19 @@ def evalOnNewDataset(hofs, dataLines):
         line = line[1:-1]
         line = map(float, line)
         counter = 0
-
+        counter = 0
         for func in functions:
             guess = func(*line)
 
-            if(guess > 0):
+            counter += 1
+            if(guess > 3):
                 votesFor1 += 1
             else:
                 votesFor0 += 1
 
         if (votesFor0 > votesFor1) and (actualResult == '0'):
             correctLines += 1
-        elif (votesFor1 > votesFor0) and (actualResult == '1'):
+        elif (votesFor1 >= votesFor0) and (actualResult == '1'):
             correctLines += 1
         guessedLines += 1
         counter += 1
@@ -235,7 +254,7 @@ for line in data1:
         line[len(line) - 1] = '1'
 
 JDT_R2_1Rez = evalOnNewDataset(hof, data1[1:])
-print("Accuracy on JDT_R2_1 dataset: ", JDT_R2_1Rez)
+#print("Accuracy on JDT_R2_1 dataset: ", JDT_R2_1Rez)
 
 
 with open('../dataset/JDT_R3_0.csv') as csvfile:
@@ -246,7 +265,7 @@ for line in data2:
         line[len(line) - 1] = '1'
 
 JDT_R3_0Rez = evalOnNewDataset(hof, data2[1:])
-print("Accuracy on JDT_R3_0 dataset: ", JDT_R3_0Rez)
+#print("Accuracy on JDT_R3_0 dataset: ", JDT_R3_0Rez)
 
 
 
@@ -256,10 +275,10 @@ mins = log.chapters['fitness'].select("min")
 maxes = log.chapters['fitness'].select("max")
 
 plt.plot(averages)
-#plt.plot(mins)
-#plt.plot(maxes)
-#plt.legend(["avg", "min", "max"])
-plt.title("acc per generation")
+plt.plot(mins)
+plt.plot(maxes)
+plt.legend(["avg", "min", "max"])
+plt.title("AUC of algorithms in GA evolution")
 plt.show()
 
 '''
